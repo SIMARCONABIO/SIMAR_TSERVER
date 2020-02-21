@@ -214,8 +214,10 @@ class TileModel:
 
 class Tiles(Resource):
 
-    def __init__(self, db):
+    def __init__(self, db, base_dir, mapserver_bin):
         self.model = TileModel(db)
+        self.base_dir = base_dir
+        self.mapserver_bin = mapserver_bin
 
     def get(self, composition, sensor, product_date, z, x, y):
         try:

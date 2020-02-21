@@ -47,10 +47,8 @@ try:
     db = psycopg2.connect(database=dbname, user=user,
                           password=passwd, host=host)
 
-    base_url = config.get('env', 'base_url')
-    vtiles_url = config.get('env', 'vtiles_url')
-    vitles_cache = config.get('env', 'vitles_cache')
-    download_uri = config.get('env', 'download_uri')
+    base_dir = config.get('env', 'base_dir')
+    mapserver_bin = config.get('env', 'mapserver_bin')
 
 except Exception as err:
     print(str(err), ' could not connect to db')
@@ -67,7 +65,7 @@ def render_static_home():
     return render_template('index.html')
 
 api.add_resource(Tiles, '/tiles/<composition>/<sensor>/<product_date>/<int:z>/<int:x>/<int:y>.png',
-                 resource_class_kwargs={'db': db})
+                 resource_class_kwargs={'db': db, 'base_dir': base_dir, 'mapserver_bin': mapserver_bin})
 
 
 if __name__ == '__main__':

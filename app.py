@@ -64,7 +64,8 @@ def render_static():
 def render_static_home():
     return render_template('index.html')
 
-api.add_resource(Tiles, '/tiles/<composition>/<sensor>/<product_date>/<int:z>/<int:x>/<int:y>.png',
+api.add_resource(Tiles, '/tiles/<composition>/<sensor>/<product_date>/<stype>/<product>/<tilematrix>/<int:z>/<int:x>/<int:y>.png',
+                 '/tiles/<composition>/<sensor>/<product_date>/<stype>',
                  resource_class_kwargs={'db': db, 'base_dir': base_dir, 'mapserver_bin': mapserver_bin})
 
 

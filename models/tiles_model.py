@@ -6,7 +6,7 @@ import psycopg2
 
 from psycopg2.extras import RealDictCursor
 
-from flask import request
+from flask import make_response, request
 
 from flask_restful import Resource, reqparse
 
@@ -27,8 +27,9 @@ from mapproxy.seed import util
 
 parser = reqparse.RequestParser()
 
-mapserver_bin = '/usr/lib/cgi-bin/mapserv'
-mapserver_url = 'http://simar.conabio.gob.mx:8085/cgi-bin/mapserv?'
+
+def print_dict(dicti):
+    print(json.dumps(dicti, indent=4, sort_keys=True))
 
 
 def get_mapproxy_conf(tileset, layer, title):
@@ -38,28 +39,28 @@ def get_mapproxy_conf(tileset, layer, title):
     return json.dumps({
         'services': {
             'wms': {'image_formats': ['image/png'],
-                'md': {'abstract': 'Djmp', 'title': 'Djmp'},
-                'srs': ['EPSG:4326', 'EPSG:3857'],
-                'versions': ['1.1.1']},
+                    'md': {'abstract': 'Djmp', 'title': 'Djmp'},
+                    'srs': ['EPSG:4326', 'EPSG:3857'],
+                    'versions': ['1.1.1']},
             'wmts': {
                 'restful': True,
                 'restful_template':
-                '/{Layer}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png',
-                },
+                    '/{Layer}/{TileMatrixSet}/{TileMatrix}/{TileCol}/{TileRow}.png',
+            },
             'tms': {
                 'origin': 'nw',
-                },
+            },
             'demo': None
         },
-        'layers':  [{
+        'layers': [{
             "name": layer,
             "title": title,
-            "sources":["tileset_cache"]
+            "sources": ["tileset_cache"]
         }],
         'caches': {
-            "tileset_cache":{
-                "grids":["webmercator"],
-                "sources":["tileset_source"],
+            "tileset_cache": {
+                "grids": ["webmercator"],
+                "sources": ["tileset_source"],
                 "cache": {
                     'type': 'file',
                     'directory': tileset.directory,
@@ -69,7 +70,7 @@ def get_mapproxy_conf(tileset, layer, title):
         },
         'sources': {
             'tileset_source': {
-                'type' : 'mapserver',
+                'type': 'mapserver',
                 'req': {
                     'layers': 'raster',
                     'transparent': 'true',
@@ -84,7 +85,7 @@ def get_mapproxy_conf(tileset, layer, title):
                     'bbox_srs': 'EPSG:4326',
                 }
             }
-        },  
+        },
         'grids': {
             'webmercator': {
                 'base': 'GLOBAL_WEBMERCATOR'
@@ -123,6 +124,7 @@ def seed_seeds(tileset):
         "coverages": ["tileset_geom"]
     }
 
+
 def get_seed_conf(tileset):
     seed_conf = {
         'coverages': {
@@ -133,6 +135,7 @@ def get_seed_conf(tileset):
         }
     }
     return json.dumps(seed_conf)
+
 
 def generate_confs(tileset, layer, title, ignore_warnings=True, renderd=False):
     """
@@ -145,7 +148,7 @@ def generate_confs(tileset, layer, title, ignore_warnings=True, renderd=False):
     tileset_conf_json = get_mapproxy_conf(tileset, layer, title)
     tileset_conf = yaml.safe_load(tileset_conf_json)
 
-    #print tileset_conf_json
+    # print tileset_conf_json
 
     # merge our config
     load_config(mapproxy_config, config_dict=tileset_conf)
@@ -166,6 +169,18 @@ def generate_confs(tileset, layer, title, ignore_warnings=True, renderd=False):
 
     return mapproxy_cf, seed_cf
 
+
+class TestApp(TestApp_):
+    """
+    Wraps webtest.TestApp and explicitly converts URLs to strings.
+    Behavior changed with webtest from 1.2->1.3.
+    """
+
+    def get(self, url, *args, **kw):
+        kw['expect_errors'] = True
+        return TestApp_.get(self, str(url), *args, **kw)
+
+
 def get_mapproxy(tileset, layer, title):
     """Creates a mapproxy config for a given layer-like object.
        Compatible with django-registry and GeoNode.
@@ -174,13 +189,15 @@ def get_mapproxy(tileset, layer, title):
     mapproxy_cf, seed_cf = generate_confs(tileset, layer, title)
     # Create a MapProxy App
     app = MapProxyApp(mapproxy_cf.configured_services(), mapproxy_cf.base_config)
+
     # Wrap it in an object that allows to get requests by path as a string.
     return TestApp(app), mapproxy_cf
+
 
 class TileModel:
 
     def __init__(self, db):
-        self.db = db       
+        self.db = db
 
     def get_raster(self, composition, sensor, product_date):
         try:
@@ -203,8 +220,7 @@ class TileModel:
         except psycopg2.Error as err:
             raise Exception(err)
 
-    def get_cache_dir(self, composition, sensor, product_date):
-        base_dir = '/mnt/d/xamp/tmp/tiles'
+    def get_cache_dir(self, base_dir, composition, sensor, product_date):
         cache_dir = None
         if composition == 'nsst':
             cache_dir = os.path.join(base_dir, sensor, composition, product_date)
@@ -219,52 +235,80 @@ class Tiles(Resource):
         self.base_dir = base_dir
         self.mapserver_bin = mapserver_bin
 
-    def get(self, composition, sensor, product_date, z, x, y):
+    def get(self, composition, sensor, product_date, stype, product=None, tilematrix=None, z=None, x=None, y=None):
         try:
-            c_dir = self.model.get_cache_dir(composition, sensor, product_date)
+            c_dir = self.model.get_cache_dir(self.base_dir, composition, sensor, product_date)
             if c_dir:
                 r = self.model.get_raster(composition, sensor, product_date)
                 if r:
-                    l_name = 'raster'
-                    tileset = type('Tileset', (object,), 
-                    {
-                        'id': r['rid'], 
-                        'name': l_name, 
-                        'map': r['filename'], 
-                        'cache_type': 'file', 
-                        'directory': c_dir,
-                        'directory_layout':'', 
-                        'source_type': 'mapserver',
-                        'mapserver_binary': mapserver_bin,
-                        'bbox_x0': -123,
-                        'bbox_x1': -59,
-                        'bbox_y0': 33,
-                        'bbox_y1': 1,
-                        'layer_name': l_name, # needs to be updated
-                        'layer_zoom_start': 0,
-                        'layer_zoom_stop': 12,
-                        'paletted': False,
-                    })()
+                    # print(r['filename'])
 
-                    print(tileset)
+                    l_name = 'raster'
+
+                    tileset = type('Tileset', (object,),
+                                   {
+                                       'id': r['rid'],
+                                       'name': l_name,
+                                       # 'map': r['filename'],
+                                       'map': '/mnt/d/Imagery/nsst/20200101090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02_0-fv04_1.map',
+                                       'cache_type': 'file',
+                                       'directory': c_dir,
+                                       'directory_layout': '',
+                                       'source_type': 'mapserver',
+                                       'mapserver_binary': self.mapserver_bin,
+                                       'bbox_x0': -123,
+                                       'bbox_x1': -59,
+                                       'bbox_y0': 33,
+                                       'bbox_y1': 1,
+                                       'layer_name': l_name,  # needs to be updated
+                                       'layer_zoom_start': 0,
+                                       'layer_zoom_stop': 12,
+                                       'paletted': False,
+                                   })()
+
+                    # print(tileset)
+
+                    print([stype, product, tilematrix])
 
                     mp, yaml_config = get_mapproxy(tileset, layer=composition, title="")
 
-                    path_info = '/%s/%s/%s' % (str(z), str(x), str(y))
+                    if stype == 'config':
+                        path_info = '/config'
+                    else:
+                        path_info = '/%s/%s/%s/%s/%s/%s.png' % (stype, product, tilematrix, str(z), str(x), str(y))
 
                     params = {}
                     headers = {
                         'X-Script-Name': str(path_info.replace(path_info.lstrip('/'), '')),
-                        'X-Forwarded-Host': request.META['HTTP_HOST'],
-                        'HTTP_HOST': request.META['HTTP_HOST'],
-                        'SERVER_NAME': request.META['SERVER_NAME'],
+                        'X-Forwarded-Host': request.environ['HTTP_HOST'],
+                        'HTTP_HOST': request.environ['HTTP_HOST'],
+                        'SERVER_NAME': request.environ['SERVER_NAME'],
                     }
+                    if path_info == '/config':
+                        print(yaml_config)
+                        print(yaml_config.layers)
+                        print(yaml_config.services)
+                        print(yaml_config.grids)
+                        print(yaml_config.sources)
+                        print(yaml_config)
+                        resp = make_response(yaml_config.layers)
+                        resp.headers.set("Content-Type", "text/plain")
+                        return resp
+
                     mp_response = mp.get(path_info, params, headers)
 
+                    print(mp.request(path_info))
+                    # print(headers)
+                    # print(path_info)
                     print(mp_response)
+                    print(mp_response.body)
+                    print(mp_response.status_int)
 
                 # print(c_dir)
             return {"success": False}
         except Exception as error:
-            print(error)
-            return {"success": False, "message": str(error)}
+            # print(error)
+            # return {"success": False, "message": str(error)}
+            resp = make_response(str(error))
+            resp.headers.set("Content-Type", "text/plain")
+            return resp

@@ -241,8 +241,7 @@ class Tiles(Resource):
             if c_dir:
                 r = self.model.get_raster(composition, sensor, product_date)
                 if r:
-                    # print(r['filename'])
-
+                    
                     l_name = 'raster'
 
                     tileset = type('Tileset', (object,),
@@ -266,10 +265,6 @@ class Tiles(Resource):
                                        'paletted': False,
                                    })()
 
-                    # print(tileset)
-
-                    print([stype, product, tilematrix])
-
                     mp, yaml_config = get_mapproxy(tileset, layer=composition, title="")
 
                     if stype == 'config':
@@ -285,30 +280,38 @@ class Tiles(Resource):
                         'SERVER_NAME': request.environ['SERVER_NAME'],
                     }
                     if path_info == '/config':
-                        print(yaml_config)
-                        print(yaml_config.layers)
-                        print(yaml_config.services)
-                        print(yaml_config.grids)
-                        print(yaml_config.sources)
-                        print(yaml_config)
                         resp = make_response(yaml_config.layers)
                         resp.headers.set("Content-Type", "text/plain")
                         return resp
+                    else:
+                        out_dir = os.path.join(c_dir, tilematrix, str(z), str(x))
+                        out_tile = os.path.join(c_dir, tilematrix, str(z), str(x), str(y) + '.png')
+                        
+                        if not os.path.isfile(out_tile):
+                            if not os.path.isdir(out_dir):
+                                os.makedirs(out_dir)
 
-                    mp_response = mp.get(path_info, params, headers)
+                            r = mp.request(path_info)
+                            if r.status_int == 200:
+                                with open(out_tile, 'wb') as f:
+                                    f.write(bytes(r.body))
+                                    f.close()
 
-                    print(mp.request(path_info))
-                    # print(headers)
-                    # print(path_info)
-                    print(mp_response)
-                    print(mp_response.body)
-                    print(mp_response.status_int)
+                                resp = make_response(r.body)
+                                resp.headers.set("Content-Type", "image/png")
+                                return resp
+                        else:
+                            f = open(out_tile, "rb")
+                            r = f.read()
+                            f.close()
+
+                            resp = make_response(r)
+                            resp.headers.set("Content-Type", "image/png")
+                            return resp
 
                 # print(c_dir)
             return {"success": False}
         except Exception as error:
-            # print(error)
-            # return {"success": False, "message": str(error)}
             resp = make_response(str(error))
             resp.headers.set("Content-Type", "text/plain")
             return resp

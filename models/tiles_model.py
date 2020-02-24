@@ -250,7 +250,7 @@ class Tiles(Resource):
                                        'id': r['rid'],
                                        'name': l_name,
                                        # 'map': r['filename'],
-                                       'map': '/mnt/d/Imagery/nsst/20200101090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02_0-fv04_1.map',
+                                       'map': '/mnt/arrakis/data/opendap/L4/2020/054/20200223090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02_0-fv04_1.map',
                                        'cache_type': 'file',
                                        'directory': c_dir,
                                        'directory_layout': '',

@@ -11,6 +11,10 @@ __pycache__/
 .config.*
 .idea/*
 
+# Enviroment
+/python36
+/python36/*
+
 # Distribution / packaging
 .Python
 build/

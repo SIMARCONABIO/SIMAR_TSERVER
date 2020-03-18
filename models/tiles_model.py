@@ -39,7 +39,7 @@ def get_mapproxy_conf(tileset, layer, title):
     return json.dumps({
         'services': {
             'wms': {'image_formats': ['image/png'],
-                    'md': {'abstract': 'Djmp', 'title': 'Djmp'},
+                    'md': {'abstract': 'SIMAR tile server', 'title': 'SIMAR tile server'},
                     'srs': ['EPSG:4326', 'EPSG:3857'],
                     'versions': ['1.1.1']},
             'wmts': {
@@ -230,10 +230,11 @@ class TileModel:
 
 class Tiles(Resource):
 
-    def __init__(self, db, base_dir, mapserver_bin):
+    def __init__(self, db, base_dir, mapserver_bin, test_map):
         self.model = TileModel(db)
         self.base_dir = base_dir
         self.mapserver_bin = mapserver_bin
+        self.test_map = test_map
 
     def get(self, composition, sensor, product_date, stype, product=None, tilematrix=None, z=None, x=None, y=None):
         try:
@@ -241,17 +242,23 @@ class Tiles(Resource):
             if c_dir:
                 r = self.model.get_raster(composition, sensor, product_date)
                 if r:
-                    
+
+                    if stype == 'config':
+                        path_info = '/config'
+                    else:
+                        path_info = '/%s/%s/%s/%s/%s/%s.png' % (stype, product, tilematrix, str(z), str(x), str(y))
+
+                    cache_dir = os.path.join(c_dir, tilematrix)
+
                     l_name = 'raster'
 
                     tileset = type('Tileset', (object,),
                                    {
                                        'id': r['rid'],
                                        'name': l_name,
-                                       # 'map': r['filename'],
-                                       'map': '/mnt/arrakis/data/opendap/L4/2020/054/20200223090000-JPL-L4_GHRSST-SSTfnd-MUR-GLOB-v02_0-fv04_1.map',
+                                       'map': self.test_map,
                                        'cache_type': 'file',
-                                       'directory': c_dir,
+                                       'directory': cache_dir,
                                        'directory_layout': '',
                                        'source_type': 'mapserver',
                                        'mapserver_binary': self.mapserver_bin,
@@ -267,23 +274,25 @@ class Tiles(Resource):
 
                     mp, yaml_config = get_mapproxy(tileset, layer=composition, title="")
 
-                    if stype == 'config':
-                        path_info = '/config'
-                    else:
-                        path_info = '/%s/%s/%s/%s/%s/%s.png' % (stype, product, tilematrix, str(z), str(x), str(y))
-
-                    params = {}
-                    headers = {
-                        'X-Script-Name': str(path_info.replace(path_info.lstrip('/'), '')),
-                        'X-Forwarded-Host': request.environ['HTTP_HOST'],
-                        'HTTP_HOST': request.environ['HTTP_HOST'],
-                        'SERVER_NAME': request.environ['SERVER_NAME'],
-                    }
                     if path_info == '/config':
                         resp = make_response(yaml_config.layers)
                         resp.headers.set("Content-Type", "text/plain")
                         return resp
                     else:
+                        out_dir = os.path.join(c_dir, tilematrix, str(z), str(x))
+                        out_tile = os.path.join(c_dir, tilematrix, str(z), str(x), str(y) + '.png')
+                        
+                        if not os.path.isfile(out_tile):
+                            if not os.path.isdir(out_dir):
+                                os.makedirs(out_dir)
+
+                        r = mp.request(path_info)
+
+                        resp = make_response(r.body)
+                        resp.headers.set("Content-Type", "image/png")
+                        return resp
+
+                        '''
                         out_dir = os.path.join(c_dir, tilematrix, str(z), str(x))
                         out_tile = os.path.join(c_dir, tilematrix, str(z), str(x), str(y) + '.png')
                         
@@ -308,6 +317,7 @@ class Tiles(Resource):
                             resp = make_response(r)
                             resp.headers.set("Content-Type", "image/png")
                             return resp
+                        '''
 
                 # print(c_dir)
             return {"success": False}

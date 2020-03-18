@@ -49,6 +49,7 @@ try:
 
     base_dir = config.get('env', 'base_dir')
     mapserver_bin = config.get('env', 'mapserver_bin')
+    test_map = config.get('env', 'test_map')
 
 except Exception as err:
     print(str(err), ' could not connect to db')
@@ -66,7 +67,7 @@ def render_static_home():
 
 api.add_resource(Tiles, '/tiles/<composition>/<sensor>/<product_date>/<stype>/<product>/<tilematrix>/<int:z>/<int:x>/<int:y>.png',
                  '/tiles/<composition>/<sensor>/<product_date>/<stype>',
-                 resource_class_kwargs={'db': db, 'base_dir': base_dir, 'mapserver_bin': mapserver_bin})
+                 resource_class_kwargs={'db': db, 'base_dir': base_dir, 'mapserver_bin': mapserver_bin, 'test_map': test_map})
 
 
 if __name__ == '__main__':

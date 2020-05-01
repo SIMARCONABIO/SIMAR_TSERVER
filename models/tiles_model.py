@@ -6,7 +6,7 @@ import psycopg2
 
 from psycopg2.extras import RealDictCursor
 
-from flask import make_response, request
+from flask import make_response, request, send_from_directory
 
 from flask_restful import Resource, reqparse
 
@@ -74,7 +74,8 @@ def get_mapproxy_conf(tileset, layer, title):
                 'req': {
                     'layers': 'raster',
                     'transparent': 'true',
-                    'map': tileset.map
+                    'map': tileset.map,
+                    'craster': tileset.craster
                 },
                 'mapserver': {
                     'binary': tileset.mapserver_binary,
@@ -199,7 +200,7 @@ class TileModel:
     def __init__(self, db):
         self.db = db
 
-    def get_raster(self, composition, sensor, product_date):
+    def get_mapfile(self, composition, sensor, product_date):
         try:
             c = composition
             if c == 'nsst':
@@ -208,6 +209,27 @@ class TileModel:
             cur = self.db.cursor(cursor_factory=RealDictCursor)
             query = """SELECT r."rid", r.filename FROM "public"."ocean_color_satmo_nc" AS c 
             INNER JOIN "public"."ocean_color_satmo_nc_rs" AS r ON c."rid" = r."ridNc" AND r.format = 'mapserver' 
+            WHERE c.product_date = '%s' and c.sensor = '%s' and c.composition = '%s';""" % (product_date, sensor, c)
+
+            cur.execute(query)
+            row = cur.fetchone()
+            cur.close()
+            if row:
+                return row
+            else:
+                return None
+        except psycopg2.Error as err:
+            raise Exception(err)
+
+    def get_raster(self, composition, sensor, product_date):
+        try:
+            c = composition
+            if c == 'nsst':
+                c = 'day'
+
+            cur = self.db.cursor(cursor_factory=RealDictCursor)
+            query = """SELECT r."rid", r.filename, r.path FROM "public"."ocean_color_satmo_nc" AS c 
+            INNER JOIN "public"."ocean_color_satmo_nc_rs" AS r ON c."rid" = r."ridNc" AND r.format = 'GTiff' 
             WHERE c.product_date = '%s' and c.sensor = '%s' and c.composition = '%s';""" % (product_date, sensor, c)
 
             cur.execute(query)
@@ -230,11 +252,11 @@ class TileModel:
 
 class Tiles(Resource):
 
-    def __init__(self, db, base_dir, mapserver_bin, test_map):
+    def __init__(self, db, base_dir, mapserver_bin, basemap_map):
         self.model = TileModel(db)
         self.base_dir = base_dir
         self.mapserver_bin = mapserver_bin
-        self.test_map = test_map
+        self.basemap_map = basemap_map
 
     def get(self, composition, sensor, product_date, stype, product=None, tilematrix=None, z=None, x=None, y=None):
         try:
@@ -242,6 +264,14 @@ class Tiles(Resource):
             if c_dir:
                 r = self.model.get_raster(composition, sensor, product_date)
                 if r:
+
+                    f = r['path']
+                    d, b = os.path.split(f)
+
+                    rl = os.path.join(d, os.path.splitext(b)[0] + '_relief.tif')
+
+                    if not os.path.isfile(rl):
+                        return {"success": False, "message": "File does not exists. [{r}]".format(r=rl)}
 
                     if stype == 'config':
                         path_info = '/config'
@@ -256,7 +286,8 @@ class Tiles(Resource):
                                    {
                                        'id': r['rid'],
                                        'name': l_name,
-                                       'map': self.test_map,
+                                       'map': self.basemap_map,
+                                       'craster': rl,
                                        'cache_type': 'file',
                                        'directory': cache_dir,
                                        'directory_layout': '',
@@ -281,7 +312,10 @@ class Tiles(Resource):
                     else:
                         out_dir = os.path.join(c_dir, tilematrix, str(z), str(x))
                         out_tile = os.path.join(c_dir, tilematrix, str(z), str(x), str(y) + '.png')
-                        
+
+                        if os.path.isfile(out_tile):
+                            return send_from_directory(out_dir, str(y) + '.png', mimetype='image/png')
+
                         if not os.path.isfile(out_tile):
                             if not os.path.isdir(out_dir):
                                 os.makedirs(out_dir)
@@ -291,36 +325,10 @@ class Tiles(Resource):
                         resp = make_response(r.body)
                         resp.headers.set("Content-Type", "image/png")
                         return resp
-
-                        '''
-                        out_dir = os.path.join(c_dir, tilematrix, str(z), str(x))
-                        out_tile = os.path.join(c_dir, tilematrix, str(z), str(x), str(y) + '.png')
-                        
-                        if not os.path.isfile(out_tile):
-                            if not os.path.isdir(out_dir):
-                                os.makedirs(out_dir)
-
-                            r = mp.request(path_info)
-                            if r.status_int == 200:
-                                with open(out_tile, 'wb') as f:
-                                    f.write(bytes(r.body))
-                                    f.close()
-
-                                resp = make_response(r.body)
-                                resp.headers.set("Content-Type", "image/png")
-                                return resp
-                        else:
-                            f = open(out_tile, "rb")
-                            r = f.read()
-                            f.close()
-
-                            resp = make_response(r)
-                            resp.headers.set("Content-Type", "image/png")
-                            return resp
-                        '''
-
-                # print(c_dir)
-            return {"success": False}
+                else:
+                    return {"success": False, "message": "No product found [{c}]".format(c=product)}
+            else:
+                return {"success": False, "message": "No cache dir for [{c}]".format(c=product)}
         except Exception as error:
             resp = make_response(str(error))
             resp.headers.set("Content-Type", "text/plain")

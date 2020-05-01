@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
+'''
+http://localhost:5005/tiles/nsst/ghrsst/2020-01-01/wmts/nsst/webmercator/5/5/15.png
 
+http://localhost/cgi-bin/mapserv?height=1184&width=1184&styles=&srs=EPSG%3A3857&request=GetMap&map=/mnt/simar-images/NOAA/NOAA-M-NSST/crw_climatology_1km_20170228_agu.map&version=1.1.1&transparent=true&bbox=-15419488.841912035,-391357.58482010313,-9627396.586574519,5400734.670517415&format=image/png&layers=raster&service=WMS
+'''
 import os
 import sys
 import psycopg2
 
 import configparser
 
-from flask import Flask, render_template, flash, redirect, url_for, session, logging, request, jsonify
+from flask import Flask, render_template, flash, redirect, url_for, session, logging, request, \
+    jsonify, send_from_directory
 from flask_cors import CORS
 
 # from wtforms import Form, StringField, TextAreaField, PasswordField, validators
@@ -20,6 +25,7 @@ from flask_jwt_extended import (
     get_jwt_identity, decode_token
 )
 
+from models.home_model import Root, ApiRoot
 from models.tiles_model import Tiles
 
 parser = reqparse.RequestParser()
@@ -49,27 +55,26 @@ try:
 
     base_dir = config.get('env', 'base_dir')
     mapserver_bin = config.get('env', 'mapserver_bin')
-    test_map = config.get('env', 'test_map')
+    basemap_map = config.get('env', 'basemap_map')
 
 except Exception as err:
     print(str(err), ' could not connect to db')
     sys.exit()
 
 
-@app.route('/')
-def render_static():
-    return render_template('index.html')
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 
-@app.route('/tiles')
-def render_static_home():
-    return render_template('index.html')
+api.add_resource(Root, '/')
+api.add_resource(ApiRoot, '/api')
 
 api.add_resource(Tiles, '/tiles/<composition>/<sensor>/<product_date>/<stype>/<product>/<tilematrix>/<int:z>/<int:x>/<int:y>.png',
                  '/tiles/<composition>/<sensor>/<product_date>/<stype>',
-                 resource_class_kwargs={'db': db, 'base_dir': base_dir, 'mapserver_bin': mapserver_bin, 'test_map': test_map})
+                 resource_class_kwargs={'db': db, 'base_dir': base_dir, 'mapserver_bin': mapserver_bin, 'basemap_map': basemap_map})
 
 
 if __name__ == '__main__':
     app.secret_key = secret_key
-    app.run(debug=True, port=5005)
+    app.run(host='0.0.0.0', debug=True, port=5005)
